@@ -1,0 +1,1569 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://login-plugin-framework/schema/manifest.schema.json",
+  "title": "登录插件 manifest v1.2",
+  "description": "登录插件框架 manifest.json 的结构契约（对应 CONTRACT.md §1–§7，冻结版 v1.2）。未知字段一律拒绝（additionalProperties: false），避免拼写错误静默失效。本文件只描述结构，跨字段语义（step id 引用、模板变量、重复键、跨文件 id 查重、webview 的 host 白名单等）由 validate.py 补充检查。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "version",
+    "engine",
+    "allowHosts",
+    "inputs",
+    "flow",
+    "output"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9]+)+$",
+      "description": "插件唯一标识，至少两段小写点分（如 demo.hello）。批量导入时跨文件查重。"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "展示名，1..64 字符。"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "语义化版本，形如 1.0.0。"
+    },
+    "engine": {
+      "type": "string",
+      "minLength": 1,
+      "description": "引擎版本范围，形如 \">=1.0 <2.0\"；引擎不满足则拒绝加载（E_ENGINE）。"
+    },
+    "author": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 128,
+      "description": "可选。作者。"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 512,
+      "description": "可选。简介。"
+    },
+    "allowHosts": {
+      "$ref": "#/$defs/allowHosts"
+    },
+    "allowInsecureLocalhost": {
+      "type": "boolean",
+      "default": false,
+      "description": "可选，默认 false。仅测试用：允许 http:// 访问 127.0.0.1 / localhost / ::1（§6.3）。正式插件不得使用。"
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/inputItem"
+      },
+      "description": "必需，可为空数组。自动生成表单的字段定义（§2）。key 在同一 manifest 内唯一。"
+    },
+    "vars": {
+      "$ref": "#/$defs/vars",
+      "description": "可选。静态/模板变量，按声明顺序求值，后者可引用前者（§3.4）。注意：JSON 重复键后者覆盖前者，属真实 bug，validate.py 会单独报错。"
+    },
+    "secrets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+      },
+      "description": "可选。声明需从安全存储读取的键，用 {{secrets.<key>}} 引用。"
+    },
+    "flow": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/step"
+      },
+      "description": "必需，非空数组。步骤数组（§4）；step id 在数组内唯一，由 validate.py 检查。"
+    },
+    "output": {
+      "$ref": "#/$defs/output",
+      "description": "必需。流程结束后展示的凭证字段（§7）。"
+    },
+    "hooks": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "v2.0 起启用（契约 §5.2.5）。省略或 null 等价于不启用 JS 沙箱。启用后 `{{fn.*}}` 由内置 JS 沙箱执行。",
+      "additionalProperties": false,
+      "properties": {
+        "libs": {
+          "type": "array",
+          "description": "启用的内置库白名单。只能选白名单内的，不支持运行时从网络安装（供应链安全）。",
+          "items": {
+            "type": "string",
+            "enum": [
+              "forge@1.4.0"
+            ]
+          },
+          "uniqueItems": true,
+          "maxItems": 8
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "description": "单次 JS 执行超时（毫秒）。默认 5000。",
+          "minimum": 100,
+          "maximum": 60000
+        }
+      }
+    }
+  },
+  "$defs": {
+    "template": {
+      "type": "string",
+      "description": "模板字符串。{{ 表达式 }} 为占位符；字面量 {{ 写作 \\{\\{。bytes 不能直接渲染（E_TYPE）。"
+    },
+    "path": {
+      "type": "string",
+      "description": "表达式路径：ident(.ident | [number])*，如 input.phone、vars.ts、steps.login.token。"
+    },
+    "expr": {
+      "type": "string",
+      "minLength": 1,
+      "description": "条件表达式（§5.1），必须求值为 bool。支持 || && 比较 ! () 与 fn.* 调用。"
+    },
+    "stepId": {
+      "type": "string",
+      "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+      "description": "步骤 id，必须匹配 ^[a-zA-Z_][a-zA-Z0-9_]*$。"
+    },
+    "allowHosts": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9\\-]*[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9\\-]*[a-zA-Z0-9])?)*(:\\d{1,5})?$",
+        "description": "host 或 host:port，不含 scheme、不含路径、不含通配符。小写精确匹配，不支持子域通配（§6.1）。"
+      },
+      "description": "必需，非空。请求 host 白名单（§6.1）。"
+    },
+    "options": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "value",
+          "label"
+        ],
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "type=select 的候选项，必需且非空。"
+    },
+    "inputItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "label",
+        "type"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+          "description": "变量名，flow 中用 {{input.<key>}} 引用；同一 manifest 内唯一。"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "表单标签，校验失败时展示。"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "phone",
+            "text",
+            "password",
+            "number",
+            "select"
+          ],
+          "description": "控件类型。phone 隐含 pattern ^1\\d{10}$。"
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "default": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "description": "可选。仅 string/number。"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "可选。正整数（CONTRACT 未规定上界）。"
+        },
+        "minLength": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "可选。非负整数（CONTRACT 未规定上界）。"
+        },
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "description": "ECMA 正则，不加定界符。"
+        },
+        "options": {
+          "$ref": "#/$defs/options"
+        },
+        "sensitive": {
+          "type": "boolean",
+          "default": false,
+          "description": "true 表示不写日志、不落盘。"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "select"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "options"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "options"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "表单字段定义（§2）。type=select ⟺ options 存在且非空。"
+    },
+    "vars": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "null"
+        ],
+        "description": "模板字符串或字面量。"
+      },
+      "description": "变量表；键为 ^[a-zA-Z_][a-zA-Z0-9_]*$（validate.py 检查），值为模板或字面量。"
+    },
+    "onFail": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/template",
+          "description": "终止并显示消息。可用 {{response.message}}。"
+        },
+        "goto": {
+          "$ref": "#/$defs/stepId",
+          "description": "跳转继续。目标 step id 必须存在（E_GOTO）。"
+        }
+      },
+      "not": {
+        "required": [
+          "message",
+          "goto"
+        ]
+      },
+      "description": "步骤失败处理（§4.6）；message / goto 互斥。"
+    },
+    "branchItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "when",
+        "goto"
+      ],
+      "properties": {
+        "when": {
+          "$ref": "#/$defs/expr"
+        },
+        "goto": {
+          "$ref": "#/$defs/stepId"
+        }
+      },
+      "description": "分支项：按序求值，首个为真者生效。"
+    },
+    "retry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "times": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5,
+          "default": 0,
+          "description": "重试次数（不含首次），0..5。"
+        },
+        "backoffMs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1000
+        },
+        "on": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 599,
+                "description": "HTTP 状态码。"
+              },
+              {
+                "type": "string",
+                "const": "network",
+                "description": "网络异常。"
+              }
+            ]
+          },
+          "default": [
+            500,
+            502,
+            503,
+            504
+          ],
+          "description": "触发重试的状态码，或 \"network\"。默认 [500,502,503,504]。"
+        }
+      },
+      "description": "请求重试策略（§4.2）。"
+    },
+    "body": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "json"
+            },
+            "value": {
+              "type": [
+                "object",
+                "array"
+              ],
+              "description": "递归渲染模板后 jsonEncode；未指定 Content-Type 时补 application/json。"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "form"
+            },
+            "value": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "application/x-www-form-urlencoded，值 urlencode。"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "text"
+            },
+            "value": {
+              "$ref": "#/$defs/template",
+              "description": "原样字符串；未指定 Content-Type 时补 text/plain; charset=UTF-8。"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "hex"
+            },
+            "value": {
+              "type": "string",
+              "pattern": "^(\\{\\{.*\\}\\}|[0-9a-fA-F]*)$",
+              "description": "hex 字符串（或渲染为 hex 的模板），解码为字节作为请求体。"
+            }
+          }
+        }
+      ],
+      "description": "请求体（§4.2）；GET 时禁止出现（E_SCHEMA）。"
+    },
+    "requestSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "url"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ]
+        },
+        "url": {
+          "$ref": "#/$defs/template",
+          "description": "必需。模板；必须是 https（除非 §6.3 本地明文）。host 必须命中 allowHosts（E_HOST）。"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/template"
+          }
+        },
+        "query": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/template"
+          },
+          "description": "值为模板字符串，自动 urlencode。"
+        },
+        "body": {
+          "$ref": "#/$defs/body"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 120000,
+          "default": 20000
+        },
+        "retry": {
+          "$ref": "#/$defs/retry"
+        },
+        "followRedirects": {
+          "type": "boolean",
+          "default": true,
+          "description": "每一跳都重新校验 allowHosts，最多 5 跳（§6.2）。"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "GET"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "body"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "request 步骤的请求定义（§4.2）。"
+    },
+    "extractItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "from"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+          "description": "提取结果的键，用 {{steps.<stepId>.<name>}} 引用；同一步骤内唯一。"
+        },
+        "from": {
+          "type": "string",
+          "enum": [
+            "json",
+            "raw",
+            "header",
+            "regex",
+            "binary"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "from=json 必需。JSONPath 子集：$ / .key / [n]（§4.8）。"
+        },
+        "header": {
+          "type": "string",
+          "minLength": 1,
+          "description": "from=header 必需。响应头名，大小写不敏感，多个值取最后一个。"
+        },
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "description": "from=regex 必需。对响应体按 UTF-8 解码后匹配。"
+        },
+        "group": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1,
+          "description": "from=regex。0 为整串，默认 1。"
+        },
+        "tag": {
+          "type": "string",
+          "pattern": "^([0-9a-fA-F]{2})+$",
+          "description": "from=binary 必需。hex 字节串，在响应体原始字节中查找第一个出现位置。"
+        },
+        "offset": {
+          "type": "integer",
+          "default": 2,
+          "description": "from=binary。加到命中位置 i 上，可为负数，默认 2。"
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "from=binary 必需。读取字节数；encoding=be32 时必须为 4。"
+        },
+        "encoding": {
+          "type": "string",
+          "enum": [
+            "ascii",
+            "utf8",
+            "hex",
+            "be32",
+            "raw"
+          ],
+          "description": "from=binary 必需。ascii/utf8/hex/be32/raw。"
+        },
+        "optional": {
+          "type": "boolean",
+          "default": false,
+          "description": "true 时提取失败改用 default 而不是报 E_EXTRACT。"
+        },
+        "default": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ],
+          "description": "optional 时的回退值。"
+        },
+        "asJson": {
+          "type": "boolean",
+          "default": false,
+          "description": "v1.1 新增（契约 §4.7）。from=json 时，把 path 取到的**字符串**再当 JSON 解析一次。用于「网关套壳 JSON」（如 responseData.data 是字符串、内容才是 JSON）。仅对 from=json 有效。"
+        },
+        "innerPath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "v1.1 新增（契约 §4.7）。asJson=true 时，在**二次解析结果**上再走一次 JSONPath；省略则直接用二次解析结果。仅在 asJson=true 时可用。"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "from": {
+                "const": "json"
+              }
+            },
+            "required": [
+              "from"
+            ]
+          },
+          "then": {
+            "required": [
+              "path"
+            ]
+          }
+        },
+        {
+          "comment": "innerPath 仅在 asJson=true 时可用（对齐 Dart 引擎的 E_SCHEMA 校验）。",
+          "if": {
+            "required": [
+              "innerPath"
+            ]
+          },
+          "then": {
+            "properties": {
+              "asJson": {
+                "const": true
+              }
+            },
+            "required": [
+              "asJson"
+            ]
+          }
+        },
+        {
+          "comment": "asJson 仅对 from=json 有效（对齐 Dart 引擎）。",
+          "if": {
+            "properties": {
+              "asJson": {
+                "const": true
+              }
+            },
+            "required": [
+              "asJson"
+            ]
+          },
+          "then": {
+            "properties": {
+              "from": {
+                "const": "json"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "from": {
+                "const": "header"
+              }
+            },
+            "required": [
+              "from"
+            ]
+          },
+          "then": {
+            "required": [
+              "header"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "from": {
+                "const": "regex"
+              }
+            },
+            "required": [
+              "from"
+            ]
+          },
+          "then": {
+            "required": [
+              "pattern"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "from": {
+                "const": "binary"
+              }
+            },
+            "required": [
+              "from"
+            ]
+          },
+          "then": {
+            "required": [
+              "tag",
+              "length",
+              "encoding"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "encoding": {
+                      "const": "be32"
+                    }
+                  },
+                  "required": [
+                    "encoding"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "length": {
+                      "const": 4
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "from": {
+                "enum": [
+                  "raw",
+                  "json",
+                  "header",
+                  "regex",
+                  "binary"
+                ]
+              }
+            },
+            "required": [
+              "from"
+            ]
+          },
+          "then": {
+            "properties": {
+              "from": {
+                "enum": [
+                  "raw",
+                  "json",
+                  "header",
+                  "regex",
+                  "binary"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "description": "提取项（§4.7）。from 决定必需字段与语义。"
+    },
+    "assertSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "json"
+      ],
+      "properties": {
+        "json": {
+          "type": "string",
+          "minLength": 1,
+          "description": "取值路径（JSONPath 子集，§4.8）。"
+        },
+        "equals": {
+          "$ref": "#/$defs/template",
+          "description": "期望值，精确字符串比较。与 notEquals/contains/matches 互斥。"
+        },
+        "notEquals": {
+          "$ref": "#/$defs/template"
+        },
+        "contains": {
+          "$ref": "#/$defs/template"
+        },
+        "matches": {
+          "type": "string",
+          "minLength": 1,
+          "description": "正则。比较前两侧转字符串。"
+        },
+        "message": {
+          "type": "string",
+          "description": "可选，失败提示。"
+        },
+        "isInteger": {
+          "type": "boolean",
+          "description": "值是否为整数（\"123\"→true，\"1.5\"→false）。v1.4 新增。"
+        },
+        "isNumeric": {
+          "type": "boolean",
+          "description": "值是否为数字（含小数）。v1.4 新增。"
+        },
+        "isEmpty": {
+          "type": "boolean",
+          "description": "是否为空（空串 / 空列表）。v1.4 新增。"
+        },
+        "isNotEmpty": {
+          "type": "boolean",
+          "description": "是否非空。v1.4 新增。"
+        },
+        "exists": {
+          "type": "boolean",
+          "description": "提取到的值是否存在（非 null）。v1.4 新增。"
+        },
+        "greaterThan": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/template"
+            }
+          ],
+          "description": "数值大于。可写数字字面量（如 0）或模板字符串（如 \"{{vars.limit}}\"，v1.4）。"
+        },
+        "lessThan": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/template"
+            }
+          ],
+          "description": "数值小于。可写数字字面量（如 0）或模板字符串（如 \"{{vars.limit}}\"，v1.4）。"
+        },
+        "startsWith": {
+          "$ref": "#/$defs/template",
+          "description": "字符串前缀。v1.4 新增。"
+        },
+        "endsWith": {
+          "$ref": "#/$defs/template",
+          "description": "字符串后缀。v1.4 新增。"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "equals"
+          ]
+        },
+        {
+          "required": [
+            "notEquals"
+          ]
+        },
+        {
+          "required": [
+            "contains"
+          ]
+        },
+        {
+          "required": [
+            "matches"
+          ]
+        },
+        {
+          "required": [
+            "isInteger"
+          ]
+        },
+        {
+          "required": [
+            "isNumeric"
+          ]
+        },
+        {
+          "required": [
+            "isEmpty"
+          ]
+        },
+        {
+          "required": [
+            "isNotEmpty"
+          ]
+        },
+        {
+          "required": [
+            "exists"
+          ]
+        },
+        {
+          "required": [
+            "greaterThan"
+          ]
+        },
+        {
+          "required": [
+            "lessThan"
+          ]
+        },
+        {
+          "required": [
+            "startsWith"
+          ]
+        },
+        {
+          "required": [
+            "endsWith"
+          ]
+        }
+      ],
+      "description": "断言（§4.5）。以下操作符**恰好一个**：equals / notEquals / contains / matches（v1.2）+ isInteger / isNumeric / isEmpty / isNotEmpty / exists / greaterThan / lessThan / startsWith / endsWith（v1.4）"
+    },
+    "requestStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "request"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stepId"
+        },
+        "type": {
+          "const": "request"
+        },
+        "when": {
+          "$ref": "#/$defs/expr"
+        },
+        "goto": {
+          "type": "string",
+          "pattern": "^([a-zA-Z_][a-zA-Z0-9_]*|next)$"
+        },
+        "branch": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/branchItem"
+          }
+        },
+        "onFail": {
+          "$ref": "#/$defs/onFail"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "error",
+                "cancelled"
+              ]
+            }
+          ],
+          "default": false
+        },
+        "request": {
+          "$ref": "#/$defs/requestSpec"
+        },
+        "extract": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/extractItem"
+          },
+          "description": "可选。提取响应中的值到 steps.<id>.*。"
+        },
+        "assert": {
+          "$ref": "#/$defs/assertSpec"
+        }
+      },
+      "description": "request 步骤：发起 HTTP 请求（§4.2）。"
+    },
+    "pollStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "poll"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stepId"
+        },
+        "type": {
+          "const": "poll"
+        },
+        "when": {
+          "$ref": "#/$defs/expr"
+        },
+        "goto": {
+          "type": "string",
+          "pattern": "^([a-zA-Z_][a-zA-Z0-9_]*|next)$"
+        },
+        "branch": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/branchItem"
+          }
+        },
+        "onFail": {
+          "$ref": "#/$defs/onFail"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "error",
+                "cancelled"
+              ]
+            }
+          ],
+          "default": false
+        },
+        "poll": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "steps",
+            "until",
+            "maxAttempts",
+            "onTimeout"
+          ],
+          "properties": {
+            "steps": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/stepId"
+              },
+              "description": "要重复执行的 step id 列表，1..5 个；必须存在（E_GOTO）。"
+            },
+            "until": {
+              "$ref": "#/$defs/expr",
+              "description": "先执行 steps，再求 until；为真则继续。"
+            },
+            "intervalMs": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 60000,
+              "default": 1000
+            },
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60
+            },
+            "onTimeout": {
+              "$ref": "#/$defs/onFail",
+              "description": "必需。达到 maxAttempts 仍未满足时的处理（默认失败终止）。"
+            }
+          }
+        }
+      },
+      "description": "poll 步骤：重复执行子步骤直到条件满足（§4.3）。"
+    },
+    "uiStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "ui"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stepId"
+        },
+        "type": {
+          "const": "ui"
+        },
+        "when": {
+          "$ref": "#/$defs/expr"
+        },
+        "goto": {
+          "type": "string",
+          "pattern": "^([a-zA-Z_][a-zA-Z0-9_]*|next)$"
+        },
+        "branch": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/branchItem"
+          }
+        },
+        "onFail": {
+          "$ref": "#/$defs/onFail"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "error",
+                "cancelled"
+              ]
+            }
+          ],
+          "default": false
+        },
+        "ui": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "label",
+            "input"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "text",
+                "image",
+                "confirm",
+                "webview",
+                "select"
+              ]
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1
+            },
+            "input": {
+              "type": "string",
+              "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+              "description": "写入 input 命名空间的键（会覆盖同名 input），后续用 {{input.<input>}} 引用。"
+            },
+            "maxLength": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "可选。type=webview/select 时不适用（值来自 JS 回传或选项，非用户自由输入）。"
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1,
+              "description": "可选。type=webview/select 时不适用。"
+            },
+            "obscure": {
+              "type": "boolean",
+              "description": "可选（v1.8 新增）。界面是否掩码（密文显示）。省略时由宿主按 input 键名自动判定（密码类掩码、验证码与手机号/邮箱不掩码）。显式写 true 强制掩码、false 强制明文。仅影响界面显示，不影响日志脱敏 —— 日志始终按 sensitive 脱敏。"
+            },
+            "image": {
+              "$ref": "#/$defs/template",
+              "description": "type=image 时必需。base64 图片。type=webview/select 时不适用。"
+            },
+            "refreshStep": {
+              "$ref": "#/$defs/stepId",
+              "description": "可选。仅 type=image。点击刷新时重新执行的 step id，必须存在（E_GOTO）。"
+            },
+            "url": {
+              "$ref": "#/$defs/template",
+              "description": "§4.4.1 type=webview。与 html 恰好一个。host 必须在 allowHosts 内（沿用 §6.1）。"
+            },
+            "html": {
+              "$ref": "#/$defs/template",
+              "description": "§4.4.1 type=webview。与 url 恰好一个。出现时 baseUrl 必需。"
+            },
+            "baseUrl": {
+              "$ref": "#/$defs/template",
+              "description": "§4.4.1 type=webview。html 出现时必需，决定相对路径与同源策略；host 必须在 allowHosts 内。"
+            },
+            "bridge": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "description": "§4.4.1 type=webview。JS 回传通道名，默认 FlutterBridge。"
+            },
+            "hint": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string",
+              "description": "type=confirm 时的正文。"
+            },
+            "options": {
+              "$ref": "#/$defs/options",
+              "description": "§4.4.0 type=select 时必需且非空，其余类型禁止出现。结构与 §2 inputs.options 一致。"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "const": "image"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "required": [
+                  "image"
+                ]
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "refreshStep"
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "const": "webview"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "oneOf": [
+                  {
+                    "required": [
+                      "url"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "html"
+                    ]
+                  }
+                ],
+                "allOf": [
+                  {
+                    "if": {
+                      "required": [
+                        "html"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "baseUrl"
+                      ]
+                    }
+                  }
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "image"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "refreshStep"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "maxLength"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "pattern"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "else": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "url"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "html"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "baseUrl"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "bridge"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "const": "select"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "required": [
+                  "options"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "maxLength"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "pattern"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "image"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "refreshStep"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "url"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "html"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "baseUrl"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "bridge"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "options"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "description": "ui 步骤：阻塞等待用户输入（§4.4）。"
+    },
+    "setStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "set"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/stepId"
+        },
+        "type": {
+          "const": "set"
+        },
+        "when": {
+          "$ref": "#/$defs/expr"
+        },
+        "goto": {
+          "type": "string",
+          "pattern": "^([a-zA-Z_][a-zA-Z0-9_]*|next)$"
+        },
+        "branch": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/branchItem"
+          }
+        },
+        "onFail": {
+          "$ref": "#/$defs/onFail"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "error",
+                "cancelled"
+              ]
+            }
+          ],
+          "default": false
+        },
+        "set": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "vars 与 js 至少有一个（契约 §5.2.6：js 是可选逃生舱，可单独使用）。",
+          "anyOf": [
+            {
+              "required": [
+                "vars"
+              ]
+            },
+            {
+              "required": [
+                "js"
+              ]
+            }
+          ],
+          "properties": {
+            "vars": {
+              "$ref": "#/$defs/vars",
+              "description": "按声明顺序求值并写入 vars 命名空间。"
+            },
+            "js": {
+              "type": "object",
+              "description": "v2.0 新增（契约 §5.2.6）。纯计算逃生舱：当模板表达式不够用时，用 JS 做变换。`code` 里可直接使用 `inputs` 的键作为变量，必须 return 一个值。",
+              "additionalProperties": false,
+              "required": [
+                "code",
+                "output"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20000,
+                  "description": "JS 代码。必须 return 一个 string/number/bool/null。"
+                },
+                "inputs": {
+                  "type": "object",
+                  "description": "输入映射：键 = JS 变量名，值 = 模板字符串。",
+                  "additionalProperties": {
+                    "$ref": "#/$defs/template"
+                  },
+                  "maxProperties": 32
+                },
+                "output": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                  "maxLength": 64,
+                  "description": "结果写入 vars 的键名。"
+                }
+              }
+            }
+          }
+        }
+      },
+      "description": "set 步骤：写入 vars（§4.9）。"
+    },
+    "step": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/requestStep"
+        },
+        {
+          "$ref": "#/$defs/pollStep"
+        },
+        {
+          "$ref": "#/$defs/uiStep"
+        },
+        {
+          "$ref": "#/$defs/setStep"
+        }
+      ],
+      "description": "步骤：由判别字段 type 决定具体形态（request / poll / ui / set）。"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "fields"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "label",
+              "value"
+            ],
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "$ref": "#/$defs/template"
+              },
+              "copyable": {
+                "type": "boolean",
+                "default": true
+              },
+              "sensitive": {
+                "type": "boolean",
+                "default": false,
+                "description": "true 则默认打码。"
+              },
+              "multiline": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          }
+        }
+      },
+      "description": "输出凭证（§7）。fields 1..32 项。"
+    }
+  }
+}

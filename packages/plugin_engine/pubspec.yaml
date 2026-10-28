@@ -1,0 +1,17 @@
+name: plugin_engine
+description: 登录插件 manifest.json 引擎（纯 Dart，与上游 tool-plugin 契约一致）
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  crypto: ^3.0.3
+  archive: ^3.6.1
+  pointycastle: ^3.9.1
+  asn1lib: ^1.5.3
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^4.0.0

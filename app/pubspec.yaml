@@ -1,0 +1,25 @@
+name: tool_plugin_app
+description: 登录插件引擎的 Flutter 客户端，支持 Android 与 iOS。
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  # 与 qiaoba-toolbox 一致：Flutter 3.41.5 / iOS 13.0
+  sdk: '>=3.5.0 <4.0.0'
+  flutter: '>=3.41.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_engine:
+    path: ../packages/plugin_engine
+  # 本地存储：插件库与本机配置
+  shared_preferences: ^2.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

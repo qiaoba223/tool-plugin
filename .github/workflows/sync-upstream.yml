@@ -1,0 +1,102 @@
+name: Sync upstream contract
+
+# 每天 03:17 UTC 检查上游契约是否有变化；也可手动触发。
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 拉取上游三个契约文件
+        run: |
+          set -e
+          BASE=https://raw.githubusercontent.com/mtguowang/tool-plugin/main
+          mkdir -p /tmp/up
+          for f in schema/manifest.schema.json schema/validate.py docs/PLUGIN_JSON_GUIDE.md; do
+            out=/tmp/up/$(basename "$f")
+            curl -fsSL "$BASE/$f" -o "$out"
+            echo "fetched $f"
+          done
+
+      - name: 对比契约基线
+        id: diff
+        run: |
+          set +e
+          CHANGED=0
+          : > /tmp/report.md
+          echo "## 上游契约变更" >> /tmp/report.md
+          echo "" >> /tmp/report.md
+
+          for pair in "manifest.schema.json:contract/manifest.schema.json" \
+                      "validate.py:contract/validate.py" \
+                      "PLUGIN_JSON_GUIDE.md:contract/PLUGIN_JSON_GUIDE.md"; do
+            up=/tmp/up/${pair%%:*}
+            local_file=${pair##*:}
+            name=${pair%%:*}
+            if ! diff -q "$up" "$local_file" >/dev/null 2>&1; then
+              CHANGED=1
+              echo "### \`$name\`" >> /tmp/report.md
+              echo "" >> /tmp/report.md
+              echo '```diff' >> /tmp/report.md
+              diff -u "$local_file" "$up" | head -300 >> /tmp/report.md
+              echo '```' >> /tmp/report.md
+              echo "" >> /tmp/report.md
+              cp "$up" "$local_file"
+            fi
+          done
+
+          # 同步后检查 FN_SPECS 是否与 Dart 侧 fnSpecs 一致
+          echo "### 函数表一致性" >> /tmp/report.md
+          echo "" >> /tmp/report.md
+          python3 - <<'PY' >> /tmp/report.md
+          import re
+          try:
+              py = open('contract/validate.py').read()
+              dart = open('packages/plugin_engine/lib/src/functions.dart').read()
+              spec = {m[0]: (m[1], m[2]) for m in
+                      re.findall(r'"(\w+)":\s*\((\d+),\s*(\d+)', py)}
+              impl = {m[0]: (m[1], m[2]) for m in
+                      re.findall(r"'(\w+)':\s*\((\d+),\s*(\d+)", dart)}
+              missing = sorted(set(spec) - set(impl))
+              extra = sorted(set(impl) - set(spec))
+              mism = sorted(k for k in set(spec) & set(impl) if spec[k] != impl[k])
+              print(f'- 上游函数数：{len(spec)}，Dart 侧：{len(impl)}')
+              if missing: print(f'- ❌ 未实现：{missing}')
+              if extra:   print(f'- ⚠️ 多余：{extra}')
+              if mism:
+                  print('- ⚠️ 参数个数不一致：')
+                  for k in mism: print(f'  - `{k}`: 上游 {spec[k]} / Dart {impl[k]}')
+              if not (missing or extra or mism): print('- ✅ 完全一致')
+          except Exception as e:
+              print(f'- 检查失败：{e}')
+          PY
+
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+          cat /tmp/report.md
+
+      - name: 建 PR
+        if: steps.diff.outputs.changed == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          BRANCH=chore/sync-upstream-$(date +%Y%m%d)
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add contract/
+          git commit -m "chore(contract): 同步上游契约 $(date +%Y-%m-%d)"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --title "chore(contract): 上游契约变更 $(date +%Y-%m-%d)" \
+            --body-file /tmp/report.md \
+            --base main --head "$BRANCH"
