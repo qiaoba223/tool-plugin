@@ -56,7 +56,7 @@
 | `fn.shiftN(s, n)` | 同上，n 可正可负 | 规范未定义负数行为 |
 | `fn.padRight/padLeft(s, len, ch)` | 按字符（rune）补齐 | 若上游按 UTF-16 code unit 补，中文会不一致 |
 | `fn.scanAscii(b, start, len)` | 取可打印 ASCII 连续段 | 规范只有一句话描述 |
-| `fn.charsetDecode(b, 'gbk')` | **GBK 表尚为空**，非 ASCII 回退 U+FFFD | **缺失**。需补完整 GBK 表（约 2 万项） |
+| `fn.charsetDecode(b, 'gbk')` | 内置 252 条范围表，覆盖约 2 万字符，简中常用字正确解码 | 未能覆盖 GBK 全码位；罕用字/繁体仍回退 U+FFFD |
 | `fn.aesCbc/aesEcb` | pointycastle，PKCS7 填充 | 规范未写明填充模式 |
 | `fn.crc32` | 标准 CRC-32（IEEE，多项式 0xEDB88320） | 规范只说「crc32」 |
 | `fn.gzip/gunz` | `archive` 包 | 压缩级别可能不同 |
@@ -69,8 +69,9 @@
 
 ### 待补的硬缺口
 
-- **GBK 表**：`fn.charsetDecode(..., 'gbk')` 目前非 ASCII 全部回退 `U+FFFD`。
-  中文站点（§14.9 明确提到 GBK 站点）会得到乱码。**这是已知缺陷，不是 bug。**
+- ~~**GBK 表**~~：已补全。`gbk_tables.dart` 收录 252 条压缩范围，覆盖约 2 万字符，
+  简中常用字已验证正确（`中文测试简体字符`）。仍存的限制是 GBK 罕用字与繁体区
+  未全部收录，遇到时回退 `U+FFFD`。
 - **`set.js` 沙箱**：`Engine.jsRuntime` 是注入点，未注入时抛 `E_JS`（不静默降级）。
   Flutter 侧接 `flutter_js`（QuickJS 内核）。**4 个真实插件里有 2 个依赖它。**
 

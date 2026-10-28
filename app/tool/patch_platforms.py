@@ -209,6 +209,55 @@ def _set_release_signing_groovy(c: str) -> str:
     return c
 
 
+def _move_main_activity():
+    """把 flutter create 生成的 MainActivity 迁到新 namespace 下。
+
+    模板按 --org/--project-name 生成 com/qiaoba/tool_plugin_app/MainActivity.kt，
+    而我们把 namespace 改成了 ANDROID_NS。Manifest 里的 ".MainActivity" 按
+    namespace 解析，编译出的类却在旧包名下 —— R8 看不到 Manifest 字符串引用，
+    直接把它当无用类删掉，装机后启动即 ClassNotFoundException 闪退。
+    """
+    src_root = 'android/app/src/main/kotlin'
+    if not os.path.isdir(src_root):
+        src_root = 'android/app/src/main/java'
+    if not os.path.isdir(src_root):
+        print('[SKIP] 找不到 MainActivity 源码根目录')
+        return
+
+    found = []
+    for dirpath, _, files in os.walk(src_root):
+        for fn in files:
+            if fn == 'MainActivity.kt' or fn == 'MainActivity.java':
+                found.append(os.path.join(dirpath, fn))
+    if not found:
+        print('[WARN] 未找到 MainActivity 源码')
+        return
+
+    target_dir = os.path.join(src_root, *ANDROID_NS.split('.'))
+    for old in found:
+        with open(old, encoding='utf-8') as f:
+            c = f.read()
+        c = re.sub(r'^package\s+[\w.]+',
+                   f'package {ANDROID_NS}', c, count=1, flags=re.M)
+        os.makedirs(target_dir, exist_ok=True)
+        new = os.path.join(target_dir, os.path.basename(old))
+        with open(new, 'w', encoding='utf-8') as f:
+            f.write(c)
+        if os.path.abspath(new) != os.path.abspath(old):
+            os.remove(old)
+            # 清掉旧包名的空目录，免得残留影响 R8
+            d = os.path.dirname(old)
+            while os.path.abspath(d) != os.path.abspath(src_root):
+                try:
+                    os.rmdir(d)
+                except OSError:
+                    break
+                d = os.path.dirname(d)
+        print(f'[OK] MainActivity: {old} -> {new}')
+        check(f'package {ANDROID_NS}' in c,
+              f'MainActivity 包名为 {ANDROID_NS}')
+
+
 def patch_android():
     """改 applicationId / minSdk。新版 Flutter 生成 build.gradle.kts，两种都要支持。"""
     gradle = 'android/app/build.gradle.kts'
@@ -276,6 +325,9 @@ def patch_android():
               f'Android minSdk = {ANDROID_MIN_SDK}')
     check('desugar_jdk_libs' in c, 'desugaring 依赖已加入')
 
+    # namespace 改了，MainActivity 必须跟着搬家，否则启动类对不上
+    _move_main_activity()
+
 
 def patch_android_manifest():
     path = 'android/app/src/main/AndroidManifest.xml'
@@ -293,9 +345,17 @@ def patch_android_manifest():
                           f'<uses-permission android:name="{perm}" />\n    <application',
                           1)
     if added:
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(c)
+        pass
+    # ".MainActivity" 依赖 namespace 解析；改过包名后容易对不上，
+    # 直接写成全限定名，杜绝启动类找不到。
+    if 'android:name=".MainActivity"' in c:
+        c = c.replace('android:name=".MainActivity"',
+                      f'android:name="{ANDROID_NS}.MainActivity"')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(c)
     check('android.permission.INTERNET' in c, 'Android INTERNET 权限已声明')
+    check(f'{ANDROID_NS}.MainActivity' in c,
+          f'启动 Activity 为全限定名 {ANDROID_NS}.MainActivity')
 
 
 for fn in (patch_pbxproj, patch_info_plist, patch_podfile,
