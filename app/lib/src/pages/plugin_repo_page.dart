@@ -8,12 +8,10 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:plugin_engine/plugin_engine.dart';
 import 'package:plugin_ui_core/plugin_ui_core.dart';
 
 import '../platform/plugin_repo_service.dart';
 import '../state/plugin_store.dart';
-import '../theme/app_theme.dart';
 
 class PluginRepoPage extends StatefulWidget {
   const PluginRepoPage({
@@ -582,22 +580,28 @@ class _PluginRepoSettingsPageState extends State<PluginRepoSettingsPage> {
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
           const SizedBox(height: 8),
-          for (final p in _presets)
-            RadioListTile<String>(
-              value: p.prefix,
-              groupValue: _selectedPreset,
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: Text(p.label),
-              onChanged: (v) => setState(() => _selectedPreset = v ?? ''),
-            ),
-          RadioListTile<String>(
-            value: '__custom__',
+          // Flutter 3.32+ 用 RadioGroup 统一管理选中值，
+          // RadioListTile 自身的 groupValue/onChanged 已废弃。
+          RadioGroup<String>(
             groupValue: _selectedPreset,
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: const Text('自定义前缀'),
             onChanged: (v) => setState(() => _selectedPreset = v ?? ''),
+            child: Column(
+              children: [
+                for (final p in _presets)
+                  RadioListTile<String>(
+                    value: p.prefix,
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(p.label),
+                  ),
+                const RadioListTile<String>(
+                  value: '__custom__',
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text('自定义前缀'),
+                ),
+              ],
+            ),
           ),
           if (_selectedPreset == '__custom__')
             Padding(
