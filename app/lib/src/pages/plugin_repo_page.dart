@@ -110,7 +110,9 @@ class _PluginRepoPageState extends State<PluginRepoPage> {
         final pkg = await client.downloadPackage(e);
         if (!mounted) return;
         setState(() => _installing[e.id] = '安装中…');
-        await widget.store.installRaw(pkg.text, source: PluginSource.imported);
+        // importText 失败时返回 ImportResult.error，不抛异常
+        final r = await widget.store.importText(pkg.text);
+        if (!r.ok) failed.add('${e.name}：${r.message}');
         if (!mounted) return;
         setState(() => _installing.remove(e.id));
       } catch (err) {
@@ -120,10 +122,10 @@ class _PluginRepoPageState extends State<PluginRepoPage> {
     }
 
     if (!mounted) return;
+    // 成功的从勾选里去掉，失败的保留勾选，方便用户直接重试
+    final failedNames = failed.map((f) => f.split('：').first).toSet();
     setState(() {
-      _selected.removeWhere(
-        (id) => !failed.any((f) => f.startsWith(_nameOf(id))),
-      );
+      _selected.removeWhere((id) => !failedNames.contains(_nameOf(id)));
     });
 
     if (failed.isEmpty) {
