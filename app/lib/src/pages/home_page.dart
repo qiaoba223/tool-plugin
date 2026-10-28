@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../state/plugin_store.dart';
 import '../theme/app_theme.dart';
+import 'plugin_repo_page.dart';
 import 'run_page.dart';
 import 'settings_page.dart';
 
@@ -127,6 +128,17 @@ class _Header extends StatelessWidget {
               size: 20,
             ),
             onPressed: settings.toggleTheme,
+          ),
+          IconButton(
+            tooltip: '插件库',
+            icon: const Icon(Icons.storefront_outlined, size: 20),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    PluginRepoPage(store: store, settings: settings),
+              ),
+            ),
           ),
           IconButton(
             tooltip: '导入 .qbpkg',

@@ -1,0 +1,16 @@
+name: plugin_ui_core
+description: 插件宿主的平台无关层：插件库、插件包、表单/输出模型、运行控制。
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+# 纯 Dart：不依赖 Flutter 与任何插件，便于单测与复用。
+# 持久化由宿主（app 层）通过回调注入。
+dependencies:
+  plugin_engine:
+    path: ../plugin_engine
+
+dev_dependencies:
+  test: ^1.25.0

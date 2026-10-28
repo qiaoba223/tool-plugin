@@ -13,12 +13,12 @@ import plistlib
 import sys
 
 IOS_DEPLOY = '13.0'
-BUNDLE_ID = 'com.qiaoba.toolplugin'
-DISPLAY_NAME = '插件工具箱'
-ANDROID_NS = 'com.qiaoba.toolplugin'
-# Flutter 3.41 的引擎要求 minSdk >= 23；取 26 与旧项目一致，
-# 也能覆盖 desugaring 需要的 API。
-ANDROID_MIN_SDK = 26
+# 与原版（工具插件 com.mtgw.tools）完全一致：包名相同才能覆盖安装/继承旧数据。
+BUNDLE_ID = 'com.mtgw.tools'
+DISPLAY_NAME = '工具插件'
+ANDROID_NS = 'com.mtgw.tools'
+# 原版 minSdk = 24；保持与原版一致，避免旧机型装不上。
+ANDROID_MIN_SDK = 24
 
 failures = []
 
@@ -336,16 +336,21 @@ def patch_android_manifest():
         return
     with open(path, encoding='utf-8') as f:
         c = f.read()
-    need = ['android.permission.INTERNET']
-    added = []
+    # 与原版一致的权限：网络 + 网络状态（判断离线用）+ 写外部存储（导出到 Download）
+    need = [
+        'android.permission.INTERNET',
+        'android.permission.ACCESS_NETWORK_STATE',
+        'android.permission.WRITE_EXTERNAL_STORAGE',
+    ]
     for perm in need:
         if perm not in c:
-            added.append(perm)
             c = c.replace('<application',
                           f'<uses-permission android:name="{perm}" />\n    <application',
                           1)
-    if added:
-        pass
+
+    # 桌面图标下显示的应用名必须与 iOS/原版一致
+    c = re.sub(r'android:label="[^"]*"', f'android:label="{DISPLAY_NAME}"', c, count=1)
+
     # ".MainActivity" 依赖 namespace 解析；改过包名后容易对不上，
     # 直接写成全限定名，杜绝启动类找不到。
     if 'android:name=".MainActivity"' in c:
@@ -353,7 +358,9 @@ def patch_android_manifest():
                       f'android:name="{ANDROID_NS}.MainActivity"')
     with open(path, 'w', encoding='utf-8') as f:
         f.write(c)
-    check('android.permission.INTERNET' in c, 'Android INTERNET 权限已声明')
+    for perm in need:
+        check(perm in c, f'已声明 {perm}')
+    check(f'android:label="{DISPLAY_NAME}"' in c, f'Android 应用名为 {DISPLAY_NAME}')
     check(f'{ANDROID_NS}.MainActivity' in c,
           f'启动 Activity 为全限定名 {ANDROID_NS}.MainActivity')
 

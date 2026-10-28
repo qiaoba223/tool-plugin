@@ -82,7 +82,7 @@ class _ToolPluginAppState extends State<ToolPluginApp> {
       builder: (context, _) {
         return MaterialApp(
           navigatorKey: _navKey,
-          title: '插件工具箱',
+          title: '工具插件',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),

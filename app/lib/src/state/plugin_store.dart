@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:plugin_engine/plugin_engine.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../platform/app_version.dart';
 import '../platform/http_transport.dart';
 
 /// 已安装插件条目：清单 + 原始 JSON（便于重新导出）。
@@ -208,18 +209,36 @@ class SettingsStore extends ChangeNotifier {
   static const _themeKey = 'theme_mode';
   static const _badCertKey = 'allow_bad_cert';
   static const _updateMirrorKey = 'update_mirror';
+  // 与上游同名的持久化键
+  static const _pluginRepoUrlKey = 'plugin_repo_url';
+  static const _pluginRepoMirrorKey = 'plugin_repo_mirror_prefix';
+  static const _pluginRepoBranchKey = 'plugin_repo_branch';
 
   final SharedPreferences _prefs;
   bool _systemIsDark;
   ThemeMode _mode = ThemeMode.system;
   bool _allowBadCert = false;
   String _updateMirror = '';
+  String _pluginRepoUrl = kDefaultPluginRepoUrl;
+  String _pluginRepoMirror = '';
+  String _pluginRepoBranch = 'main';
 
   ThemeMode get mode => _mode;
   bool get allowBadCert => _allowBadCert;
 
-  /// 更新下载的镜像前缀（空串表示直连 GitHub）。
+  /// **应用自身**更新的下载镜像前缀（空串表示直连）。
+  ///
+  /// 注意与 [pluginRepoMirror] 区分：那个是**插件库**的镜像。
   String get updateMirror => _updateMirror;
+
+  /// **插件库**地址，形如 `https://github.com/owner/repo`。
+  String get pluginRepoUrl => _pluginRepoUrl;
+
+  /// **插件库**的镜像前缀（空串 = 依次自动回退）。
+  String get pluginRepoMirror => _pluginRepoMirror;
+
+  /// 插件库分支，默认 `main`。
+  String get pluginRepoBranch => _pluginRepoBranch;
 
   /// 当前实际是否深色（供状态栏图标等使用）。
   bool get isDark => switch (_mode) {
@@ -236,6 +255,10 @@ class SettingsStore extends ChangeNotifier {
     };
     _allowBadCert = _prefs.getBool(_badCertKey) ?? false;
     _updateMirror = _prefs.getString(_updateMirrorKey) ?? '';
+    _pluginRepoUrl =
+        _prefs.getString(_pluginRepoUrlKey) ?? kDefaultPluginRepoUrl;
+    _pluginRepoMirror = _prefs.getString(_pluginRepoMirrorKey) ?? '';
+    _pluginRepoBranch = _prefs.getString(_pluginRepoBranchKey) ?? 'main';
   }
 
   /// 系统外观变化时更新（仅 system 模式生效）。
@@ -271,6 +294,36 @@ class SettingsStore extends ChangeNotifier {
     } else {
       await _prefs.setString(_updateMirrorKey, t);
     }
+    notifyListeners();
+  }
+
+  /// 设置插件库地址。空串表示恢复默认。
+  Future<void> setPluginRepoUrl(String v) async {
+    final t = v.trim();
+    if (_pluginRepoUrl == t) return;
+    _pluginRepoUrl = t.isEmpty ? kDefaultPluginRepoUrl : t;
+    await _prefs.setString(_pluginRepoUrlKey, _pluginRepoUrl);
+    notifyListeners();
+  }
+
+  /// 设置插件库镜像前缀。空串表示自动回退。
+  Future<void> setPluginRepoMirror(String v) async {
+    final t = v.trim();
+    if (_pluginRepoMirror == t) return;
+    _pluginRepoMirror = t;
+    if (t.isEmpty) {
+      await _prefs.remove(_pluginRepoMirrorKey);
+    } else {
+      await _prefs.setString(_pluginRepoMirrorKey, t);
+    }
+    notifyListeners();
+  }
+
+  Future<void> setPluginRepoBranch(String v) async {
+    final t = v.trim().isEmpty ? 'main' : v.trim();
+    if (_pluginRepoBranch == t) return;
+    _pluginRepoBranch = t;
+    await _prefs.setString(_pluginRepoBranchKey, t);
     notifyListeners();
   }
 

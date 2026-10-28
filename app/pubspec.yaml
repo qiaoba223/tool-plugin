@@ -13,6 +13,9 @@ dependencies:
     sdk: flutter
   plugin_engine:
     path: ../packages/plugin_engine
+  # 平台无关的宿主逻辑：插件库访问、表单校验规则
+  plugin_ui_core:
+    path: ../packages/plugin_ui_core
   # 本地存储：插件库与本机配置
   shared_preferences: ^2.2.2
 

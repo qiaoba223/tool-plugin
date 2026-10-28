@@ -53,6 +53,16 @@ class UpdateException implements Exception {
   String toString() => cause == null ? message : '$message（$cause）';
 }
 
+/// 速率限制重置时间的粗略描述（Unix 秒 → "N"）。
+String _minutesUntil(String unixSeconds) {
+  final secs = int.tryParse(unixSeconds);
+  if (secs == null) return '稍';
+  final diff = DateTime.fromMillisecondsSinceEpoch(secs * 1000)
+      .difference(DateTime.now())
+      .inMinutes;
+  return diff <= 0 ? '1' : '$diff';
+}
+
 /// 语义化版本比较，用于判断"有没有更新"。
 ///
 /// 必须比字符串相等更严格：`1.0.10` 要比 `1.0.9` 新。只按数字段比较，
@@ -117,6 +127,23 @@ class UpdateService {
 
       if (resp.statusCode == HttpStatus.notFound) return null;
       final text = await resp.transform(utf8.decoder).join();
+      if (resp.statusCode == HttpStatus.forbidden ||
+          resp.statusCode == HttpStatus.tooManyRequests) {
+        // 403 通常是仓库私有或触发了 API 频率限制；两者都给出可操作提示，
+        // 而不是甩一个裸状态码。
+        final remaining = resp.headers.value('x-ratelimit-remaining');
+        if (remaining == '0') {
+          final reset = resp.headers.value('x-ratelimit-reset');
+          throw UpdateException(
+            '更新检查太频繁，GitHub 已限流'
+            '${reset != null ? '，约 ${_minutesUntil(reset)} 分钟后可再试' : ''}',
+          );
+        }
+        throw UpdateException(
+          '无法读取更新信息（HTTP ${resp.statusCode}），'
+          '请确认发布仓库是公开的',
+        );
+      }
       if (resp.statusCode != HttpStatus.ok) {
         throw UpdateException('检查更新失败（HTTP ${resp.statusCode}）');
       }
