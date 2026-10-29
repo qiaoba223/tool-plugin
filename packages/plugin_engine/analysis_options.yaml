@@ -1,7 +1,0 @@
-include: package:lints/recommended.yaml
-
-linter:
-  rules:
-    # raw string 里要拼变量只能 +，保留可读性
-    prefer_interpolation_to_compose_strings: false
-    prefer_adjacent_string_concatenation: false
