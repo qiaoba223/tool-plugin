@@ -126,6 +126,20 @@ jobs:
           generate_release_notes: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # 复用同名 release 时，asset 会被覆盖但 published_at 不会刷新，
+      # 界面上就会显示成上一次发布的时间。这里显式对齐到本次构建时间。
+      - name: 刷新发布时间
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          ID=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq .id)
+          gh api -X PATCH "repos/${{ github.repository }}/releases/$ID" \
+            -F published_at="$NOW" >/dev/null
+          echo "release $TAG 发布时间已更新为 $NOW"
+
   build-ios:
     name: Build iOS IPA (unsigned, TrollStore compatible)
     runs-on: macos-latest
@@ -263,3 +277,16 @@ jobs:
           files: dist/*.ipa
           generate_release_notes: true
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 与 Android job 相同：复用 release 时 published_at 不会自动更新
+      - name: 刷新发布时间
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          ID=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq .id)
+          gh api -X PATCH "repos/${{ github.repository }}/releases/$ID" \
+            -F published_at="$NOW" >/dev/null
+          echo "release $TAG 发布时间已更新为 $NOW"
